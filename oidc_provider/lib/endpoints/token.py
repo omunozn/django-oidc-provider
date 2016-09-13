@@ -1,27 +1,16 @@
-import inspect
-from base64 import urlsafe_b64encode
 import hashlib
+import inspect
 import logging
+from base64 import urlsafe_b64encode
+
 from django.contrib.auth import authenticate
-
 from django.http import JsonResponse
-
-from oidc_provider.lib.errors import (
-    TokenError,
-    UserAuthError,
-)
-from oidc_provider.lib.utils.oauth2 import extract_client_auth
-from oidc_provider.lib.utils.token import (
-    create_id_token,
-    create_token,
-    encode_id_token,
-)
-from oidc_provider.models import (
-    Client,
-    Code,
-    Token,
-)
 from oidc_provider import settings
+from oidc_provider.lib.errors import TokenError, UserAuthError
+from oidc_provider.lib.utils.oauth2 import extract_client_auth
+from oidc_provider.lib.utils.token import (create_id_token, create_token,
+                                           encode_id_token)
+from oidc_provider.models import Client, Code, Token
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +153,8 @@ class TokenEndpoint(object):
                 at_hash=token.at_hash,
                 request=self.request,
                 scope=token.scope,
+                # scope=self.params['scope'],
+                sid=self.client.frontchannel_logout_session_supported,
             )
         else:
             id_token_dic = {}
@@ -209,6 +200,8 @@ class TokenEndpoint(object):
                 at_hash=token.at_hash,
                 request=self.request,
                 scope=token.scope,
+                # scope=self.params['scope'],
+                sid=self.client.frontchannel_logout_session_supported,
             )
         else:
             id_token_dic = {}

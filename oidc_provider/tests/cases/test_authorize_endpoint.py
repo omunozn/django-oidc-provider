@@ -1,4 +1,17 @@
+import uuid
+
+from django.contrib.auth.models import AnonymousUser
+from django.core.management import call_command
+from django.test import RequestFactory, TestCase, override_settings
+from jwkest.jwt import JWT
+from mock import mock, patch
+from oidc_provider import settings
+from oidc_provider.lib.endpoints.authorize import AuthorizeEndpoint
 from oidc_provider.lib.errors import RedirectUriError
+from oidc_provider.lib.utils.authorize import strip_prompt_login
+from oidc_provider.tests.app.utils import (
+    FAKE_CODE_CHALLENGE, create_fake_client, create_fake_user, is_code_valid)
+from oidc_provider.views import AuthorizeView
 
 try:
     from urllib.parse import urlencode, quote
@@ -8,32 +21,11 @@ try:
     from urllib.parse import parse_qs, urlsplit
 except ImportError:
     from urlparse import parse_qs, urlsplit
-import uuid
-from mock import patch, mock
 
-from django.contrib.auth.models import AnonymousUser
-from django.core.management import call_command
 try:
     from django.urls import reverse
 except ImportError:
     from django.core.urlresolvers import reverse
-from django.test import (
-    RequestFactory,
-    override_settings,
-)
-from django.test import TestCase
-from jwkest.jwt import JWT
-
-from oidc_provider import settings
-from oidc_provider.tests.app.utils import (
-    create_fake_user,
-    create_fake_client,
-    FAKE_CODE_CHALLENGE,
-    is_code_valid,
-)
-from oidc_provider.lib.utils.authorize import strip_prompt_login
-from oidc_provider.views import AuthorizeView
-from oidc_provider.lib.endpoints.authorize import AuthorizeEndpoint
 
 
 class AuthorizeEndpointMixin(object):
@@ -73,7 +65,8 @@ class AuthorizationCodeFlowTestCase(TestCase, AuthorizeEndpointMixin):
         self.client = create_fake_client(response_type='code')
         self.client_with_no_consent = create_fake_client(
             response_type='code', require_consent=False)
-        self.client_public = create_fake_client(response_type='code', is_public=True)
+        self.client_public = create_fake_client(
+            response_type='code', is_public=True)
         self.client_public_with_no_consent = create_fake_client(
             response_type='code', is_public=True, require_consent=False)
         self.state = uuid.uuid4().hex
@@ -170,8 +163,10 @@ class AuthorizationCodeFlowTestCase(TestCase, AuthorizeEndpointMixin):
         }
 
         for key, value in iter(to_check.items()):
-            is_input_ok = input_html.format(key, value) in response.content.decode('utf-8')
-            self.assertEqual(is_input_ok, True, msg='Hidden input for "' + key + '" fails.')
+            is_input_ok = input_html.format(
+                key, value) in response.content.decode('utf-8')
+            self.assertEqual(
+                is_input_ok, True, msg='Hidden input for "' + key + '" fails.')
 
     def test_user_consent_response(self):
         """
@@ -200,18 +195,22 @@ class AuthorizationCodeFlowTestCase(TestCase, AuthorizeEndpointMixin):
 
         # Because user doesn't allow app, SHOULD exists an error parameter
         # in the query.
-        self.assertIn('error=', response['Location'], msg='error param is missing in query.')
         self.assertIn(
-            'access_denied', response['Location'], msg='"access_denied" code is missing in query.')
+            'error=',
+            response['Location'],
+            msg='error param is missing in query.')
+        self.assertIn(
+            'access_denied',
+            response['Location'],
+            msg='"access_denied" code is missing in query.')
 
         # Simulate user authorization.
         data['allow'] = 'Accept'  # Will be the value of the button.
 
         response = self._auth_request('post', data, is_user_authenticated=True)
 
-        is_code_ok = is_code_valid(url=response['Location'],
-                                   user=self.user,
-                                   client=self.client)
+        is_code_ok = is_code_valid(
+            url=response['Location'], user=self.user, client=self.client)
         self.assertEqual(is_code_ok, True, msg='Code returned is invalid.')
 
         # Check if the state is returned.
@@ -233,29 +232,35 @@ class AuthorizationCodeFlowTestCase(TestCase, AuthorizeEndpointMixin):
             'allow': 'Accept',
         }
 
-        request = self.factory.post(reverse('oidc_provider:authorize'),
-                                    data=data)
+        request = self.factory.post(
+            reverse('oidc_provider:authorize'), data=data)
         # Simulate that the user is logged.
         request.user = self.user
 
         response = self._auth_request('post', data, is_user_authenticated=True)
 
-        self.assertIn('code', response['Location'], msg='Code is missing in the returned url.')
+        self.assertIn(
+            'code',
+            response['Location'],
+            msg='Code is missing in the returned url.')
 
         response = self._auth_request('post', data, is_user_authenticated=True)
 
-        is_code_ok = is_code_valid(url=response['Location'],
-                                   user=self.user,
-                                   client=self.client_with_no_consent)
+        is_code_ok = is_code_valid(
+            url=response['Location'],
+            user=self.user,
+            client=self.client_with_no_consent)
         self.assertEqual(is_code_ok, True, msg='Code returned is invalid.')
 
         del data['allow']
         response = self._auth_request('get', data, is_user_authenticated=True)
 
-        is_code_ok = is_code_valid(url=response['Location'],
-                                   user=self.user,
-                                   client=self.client_with_no_consent)
-        self.assertEqual(is_code_ok, True, msg='Code returned is invalid or missing.')
+        is_code_ok = is_code_valid(
+            url=response['Location'],
+            user=self.user,
+            client=self.client_with_no_consent)
+        self.assertEqual(
+            is_code_ok, True, msg='Code returned is invalid or missing.')
 
     def test_response_uri_is_properly_constructed(self):
         """
@@ -276,11 +281,11 @@ class AuthorizationCodeFlowTestCase(TestCase, AuthorizeEndpointMixin):
         parsed = urlsplit(response['Location'])
         params = parse_qs(parsed.query or parsed.fragment)
         state = params['state'][0]
-        self.assertEquals(self.state, state, msg="State returned is invalid or missing")
+        self.assertEquals(
+            self.state, state, msg="State returned is invalid or missing")
 
-        is_code_ok = is_code_valid(url=response['Location'],
-                                   user=self.user,
-                                   client=self.client)
+        is_code_ok = is_code_valid(
+            url=response['Location'], user=self.user, client=self.client)
         self.assertTrue(is_code_ok, msg='Code returned is invalid or missing')
 
         self.assertEquals(
@@ -306,7 +311,9 @@ class AuthorizationCodeFlowTestCase(TestCase, AuthorizeEndpointMixin):
 
         response = self._auth_request('get', data)
         self.assertIn(
-            RedirectUriError.error, response.content.decode('utf-8'), msg='No redirect_uri error')
+            RedirectUriError.error,
+            response.content.decode('utf-8'),
+            msg='No redirect_uri error')
 
     def test_manipulated_redirect_uris_are_rejected(self):
         """
@@ -323,7 +330,9 @@ class AuthorizationCodeFlowTestCase(TestCase, AuthorizeEndpointMixin):
 
         response = self._auth_request('get', data)
         self.assertIn(
-            RedirectUriError.error, response.content.decode('utf-8'), msg='No redirect_uri error')
+            RedirectUriError.error,
+            response.content.decode('utf-8'),
+            msg='No redirect_uri error')
 
     def test_public_client_auto_approval(self):
         """
@@ -331,16 +340,22 @@ class AuthorizationCodeFlowTestCase(TestCase, AuthorizeEndpointMixin):
         clients using Authorization Code.
         """
         data = {
-            'client_id': self.client_public_with_no_consent.client_id,
-            'response_type': 'code',
-            'redirect_uri': self.client_public_with_no_consent.default_redirect_uri,
-            'scope': 'openid email',
-            'state': self.state,
+            'client_id':
+                self.client_public_with_no_consent.client_id,
+            'response_type':
+                'code',
+            'redirect_uri':
+                self.client_public_with_no_consent.default_redirect_uri,
+            'scope':
+                'openid email',
+            'state':
+                self.state,
         }
 
         response = self._auth_request('get', data, is_user_authenticated=True)
 
-        self.assertIn('Request for Permission', response.content.decode('utf-8'))
+        self.assertIn('Request for Permission',
+                      response.content.decode('utf-8'))
 
     def test_prompt_none_parameter(self):
         """
@@ -387,21 +402,17 @@ class AuthorizationCodeFlowTestCase(TestCase, AuthorizeEndpointMixin):
         response = self._auth_request('get', data)
         self.assertIn(settings.get('OIDC_LOGIN_URL'), response['Location'])
         self.assertNotIn(
-            quote('prompt=login'),
-            response['Location'],
+            quote('prompt=login'), response['Location'],
             "Found prompt=login, this leads to infinite login loop. See "
-            "https://github.com/juanifioren/django-oidc-provider/issues/197."
-        )
+            "https://github.com/juanifioren/django-oidc-provider/issues/197.")
 
         response = self._auth_request('get', data, is_user_authenticated=True)
         self.assertIn(settings.get('OIDC_LOGIN_URL'), response['Location'])
         self.assertTrue(logout_function.called_once())
         self.assertNotIn(
-            quote('prompt=login'),
-            response['Location'],
+            quote('prompt=login'), response['Location'],
             "Found prompt=login, this leads to infinite login loop. See "
-            "https://github.com/juanifioren/django-oidc-provider/issues/197."
-        )
+            "https://github.com/juanifioren/django-oidc-provider/issues/197.")
 
     def test_prompt_login_none_parameter(self):
         """
@@ -445,8 +456,8 @@ class AuthorizationCodeFlowTestCase(TestCase, AuthorizeEndpointMixin):
 
         response = self._auth_request('get', data, is_user_authenticated=True)
         render_patched.assert_called_once()
-        self.assertTrue(
-            render_patched.call_args[0][1], settings.get('OIDC_TEMPLATES')['authorize'])
+        self.assertTrue(render_patched.call_args[0][1],
+                        settings.get('OIDC_TEMPLATES')['authorize'])
 
     def test_prompt_consent_none_parameter(self):
         """
@@ -508,14 +519,19 @@ class AuthorizationImplicitFlowTestCase(TestCase, AuthorizeEndpointMixin):
         self.factory = RequestFactory()
         self.user = create_fake_user()
         self.client = create_fake_client(response_type='id_token token')
-        self.client_public = create_fake_client(response_type='id_token token', is_public=True)
+        self.client_public = create_fake_client(
+            response_type='id_token token', is_public=True)
         self.client_public_no_consent = create_fake_client(
-            response_type='id_token token', is_public=True,
+            response_type='id_token token',
+            is_public=True,
             require_consent=False)
         self.client_no_access = create_fake_client(response_type='id_token')
-        self.client_public_no_access = create_fake_client(response_type='id_token', is_public=True)
+        self.client_public_no_access = create_fake_client(
+            response_type='id_token', is_public=True)
         self.client_multiple_response_types = create_fake_client(
             response_type=('id_token', 'id_token token'))
+        self.client_logout_session_supported = create_fake_client(
+            response_type='id_token', logout_session_supported=True)
         self.state = uuid.uuid4().hex
         self.nonce = uuid.uuid4().hex
 
@@ -571,13 +587,20 @@ class AuthorizationImplicitFlowTestCase(TestCase, AuthorizeEndpointMixin):
         only an id token as the result of the authorization request.
         """
         data = {
-            'client_id': self.client_no_access.client_id,
-            'redirect_uri': self.client_no_access.default_redirect_uri,
-            'response_type': next(self.client_no_access.response_type_values()),
-            'scope': 'openid email',
-            'state': self.state,
-            'nonce': self.nonce,
-            'allow': 'Accept',
+            'client_id':
+                self.client_no_access.client_id,
+            'redirect_uri':
+                self.client_no_access.default_redirect_uri,
+            'response_type':
+                next(self.client_no_access.response_type_values()),
+            'scope':
+                'openid email',
+            'state':
+                self.state,
+            'nonce':
+                self.nonce,
+            'allow':
+                'Accept',
         }
 
         response = self._auth_request('post', data, is_user_authenticated=True)
@@ -587,8 +610,10 @@ class AuthorizationImplicitFlowTestCase(TestCase, AuthorizeEndpointMixin):
 
         # same for public client
         data['client_id'] = self.client_public_no_access.client_id,
-        data['redirect_uri'] = self.client_public_no_access.default_redirect_uri,
-        data['response_type'] = next(self.client_public_no_access.response_type_values()),
+        data[
+            'redirect_uri'] = self.client_public_no_access.default_redirect_uri,
+        data['response_type'] = next(
+            self.client_public_no_access.response_type_values()),
 
         response = self._auth_request('post', data, is_user_authenticated=True)
 
@@ -617,7 +642,8 @@ class AuthorizationImplicitFlowTestCase(TestCase, AuthorizeEndpointMixin):
         # obtain `id_token` portion of Location
         components = urlsplit(response['Location'])
         fragment = parse_qs(components[4])
-        id_token = JWT().unpack(fragment["id_token"][0].encode('utf-8')).payload()
+        id_token = JWT().unpack(
+            fragment["id_token"][0].encode('utf-8')).payload()
 
         self.assertIn('at_hash', id_token)
 
@@ -627,13 +653,20 @@ class AuthorizationImplicitFlowTestCase(TestCase, AuthorizeEndpointMixin):
         `at_hash` in `id_token`.
         """
         data = {
-            'client_id': self.client_no_access.client_id,
-            'redirect_uri': self.client_no_access.default_redirect_uri,
-            'response_type': next(self.client_no_access.response_type_values()),
-            'scope': 'openid email',
-            'state': self.state,
-            'nonce': self.nonce,
-            'allow': 'Accept',
+            'client_id':
+                self.client_no_access.client_id,
+            'redirect_uri':
+                self.client_no_access.default_redirect_uri,
+            'response_type':
+                next(self.client_no_access.response_type_values()),
+            'scope':
+                'openid email',
+            'state':
+                self.state,
+            'nonce':
+                self.nonce,
+            'allow':
+                'Accept',
         }
 
         response = self._auth_request('post', data, is_user_authenticated=True)
@@ -643,7 +676,8 @@ class AuthorizationImplicitFlowTestCase(TestCase, AuthorizeEndpointMixin):
         # obtain `id_token` portion of Location
         components = urlsplit(response['Location'])
         fragment = parse_qs(components[4])
-        id_token = JWT().unpack(fragment["id_token"][0].encode('utf-8')).payload()
+        id_token = JWT().unpack(
+            fragment["id_token"][0].encode('utf-8')).payload()
 
         self.assertNotIn('at_hash', id_token)
 
@@ -652,12 +686,18 @@ class AuthorizationImplicitFlowTestCase(TestCase, AuthorizeEndpointMixin):
         Public clients using Implicit Flow should be able to reuse consent.
         """
         data = {
-            'client_id': self.client_public_no_consent.client_id,
-            'response_type': next(self.client_public_no_consent.response_type_values()),
-            'redirect_uri': self.client_public_no_consent.default_redirect_uri,
-            'scope': 'openid email',
-            'state': self.state,
-            'nonce': self.nonce,
+            'client_id':
+                self.client_public_no_consent.client_id,
+            'response_type':
+                next(self.client_public_no_consent.response_type_values()),
+            'redirect_uri':
+                self.client_public_no_consent.default_redirect_uri,
+            'scope':
+                'openid email',
+            'state':
+                self.state,
+            'nonce':
+                self.nonce,
         }
 
         response = self._auth_request('get', data, is_user_authenticated=True)
@@ -674,13 +714,20 @@ class AuthorizationImplicitFlowTestCase(TestCase, AuthorizeEndpointMixin):
         Clients should be able to be configured for multiple response types.
         """
         data = {
-            'client_id': self.client_multiple_response_types.client_id,
-            'redirect_uri': self.client_multiple_response_types.default_redirect_uri,
-            'response_type': 'id_token',
-            'scope': 'openid email',
-            'state': self.state,
-            'nonce': self.nonce,
-            'allow': 'Accept',
+            'client_id':
+                self.client_multiple_response_types.client_id,
+            'redirect_uri':
+                self.client_multiple_response_types.default_redirect_uri,
+            'response_type':
+                'id_token',
+            'scope':
+                'openid email',
+            'state':
+                self.state,
+            'nonce':
+                self.nonce,
+            'allow':
+                'Accept',
         }
 
         response = self._auth_request('post', data, is_user_authenticated=True)
@@ -695,6 +742,39 @@ class AuthorizationImplicitFlowTestCase(TestCase, AuthorizeEndpointMixin):
 
         self.assertIn('access_token', response['Location'])
         self.assertIn('id_token', response['Location'])
+
+    def test_idtoken_sid(self):
+        """
+        Implicit client which supports logout session receives
+        `sid` in `id_token`.
+        """
+        data = {
+            'client_id':
+                self.client_logout_session_supported.client_id,
+            'redirect_uri':
+                self.client_logout_session_supported.default_redirect_uri,
+            'response_type':
+                self.client_logout_session_supported.response_type,
+            'scope':
+                'openid email',
+            'state':
+                self.state,
+            'nonce':
+                self.nonce,
+            'allow':
+                'Accept',
+        }
+
+        response = self._auth_request('post', data, is_user_authenticated=True)
+        self.assertIn('id_token', response['Location'])
+
+        # obtain `id_token` portion of Location
+        components = urlsplit(response['Location'])
+        fragment = parse_qs(components[4])
+        id_token = JWT().unpack(
+            fragment["id_token"][0].encode('utf-8')).payload()
+
+        self.assertIn('sid', id_token)
 
 
 class AuthorizationHybridFlowTestCase(TestCase, AuthorizeEndpointMixin):
@@ -713,13 +793,20 @@ class AuthorizationHybridFlowTestCase(TestCase, AuthorizeEndpointMixin):
 
         # Base data for the auth request.
         self.data = {
-            'client_id': self.client_code_idtoken_token.client_id,
-            'redirect_uri': self.client_code_idtoken_token.default_redirect_uri,
-            'response_type': next(self.client_code_idtoken_token.response_type_values()),
-            'scope': 'openid email',
-            'state': self.state,
-            'nonce': self.nonce,
-            'allow': 'Accept',
+            'client_id':
+                self.client_code_idtoken_token.client_id,
+            'redirect_uri':
+                self.client_code_idtoken_token.default_redirect_uri,
+            'response_type':
+                next(self.client_code_idtoken_token.response_type_values()),
+            'scope':
+                'openid email',
+            'state':
+                self.state,
+            'nonce':
+                self.nonce,
+            'allow':
+                'Accept',
         }
 
     def test_code_idtoken_token_response(self):
@@ -727,7 +814,8 @@ class AuthorizationHybridFlowTestCase(TestCase, AuthorizeEndpointMixin):
         Implicit client requesting `id_token token` receives both id token
         and access token as the result of the authorization request.
         """
-        response = self._auth_request('post', self.data, is_user_authenticated=True)
+        response = self._auth_request(
+            'post', self.data, is_user_authenticated=True)
 
         self.assertIn('#', response['Location'])
         self.assertIn('access_token', response['Location'])
@@ -736,9 +824,10 @@ class AuthorizationHybridFlowTestCase(TestCase, AuthorizeEndpointMixin):
         self.assertIn('code', response['Location'])
 
         # Validate code.
-        is_code_ok = is_code_valid(url=response['Location'],
-                                   user=self.user,
-                                   client=self.client_code_idtoken_token)
+        is_code_ok = is_code_valid(
+            url=response['Location'],
+            user=self.user,
+            client=self.client_code_idtoken_token)
         self.assertEqual(is_code_ok, True, msg='Code returned is invalid.')
 
     @override_settings(OIDC_TOKEN_EXPIRE=36000)
@@ -746,12 +835,14 @@ class AuthorizationHybridFlowTestCase(TestCase, AuthorizeEndpointMixin):
         """
         Add ten hours of expiration to access_token. Check for the expires_in query in fragment.
         """
-        response = self._auth_request('post', self.data, is_user_authenticated=True)
+        response = self._auth_request(
+            'post', self.data, is_user_authenticated=True)
 
         self.assertIn('expires_in=36000', response['Location'])
 
 
 class TestCreateResponseURI(TestCase):
+
     def setUp(self):
         url = reverse('oidc_provider:authorize')
         user = create_fake_user()
@@ -770,7 +861,8 @@ class TestCreateResponseURI(TestCase):
 
     @patch('oidc_provider.lib.endpoints.authorize.create_code')
     @patch('oidc_provider.lib.endpoints.authorize.logger.exception')
-    def test_create_response_uri_logs_to_error(self, log_exception, create_code):
+    def test_create_response_uri_logs_to_error(self, log_exception,
+                                               create_code):
         """
         A lot can go wrong when creating a response uri and this is caught
         with a general Exception error. The information contained within this
@@ -787,10 +879,12 @@ class TestCreateResponseURI(TestCase):
             authorization_endpoint.create_response_uri()
 
         log_exception.assert_called_once_with(
-            '[Authorize] Error when trying to create response uri: %s', exception)
+            '[Authorize] Error when trying to create response uri: %s',
+            exception)
 
     @override_settings(OIDC_SESSION_MANAGEMENT_ENABLE=True)
-    def test_create_response_uri_generates_session_state_if_session_management_enabled(self):
+    def test_create_response_uri_generates_session_state_if_session_management_enabled(
+            self):
         # RequestFactory doesn't support sessions, so we mock it
         self.request.session = mock.Mock(session_key=None)
 

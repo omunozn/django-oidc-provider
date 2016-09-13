@@ -35,9 +35,11 @@ class ClientForm(ModelForm):
         secret = ''
 
         if instance and instance.pk:
-            if (self.cleaned_data['client_type'] == 'confidential') and not instance.client_secret:
+            if (self.cleaned_data['client_type'] == 'confidential'
+               ) and not instance.client_secret:
                 secret = sha224(uuid4().hex.encode()).hexdigest()
-            elif (self.cleaned_data['client_type'] == 'confidential') and instance.client_secret:
+            elif (self.cleaned_data['client_type'] == 'confidential'
+                 ) and instance.client_secret:
                 secret = instance.client_secret
         else:
             if (self.cleaned_data['client_type'] == 'confidential'):
@@ -64,9 +66,15 @@ class ClientAdmin(admin.ModelAdmin):
         [_(u'Session Management'), {
             'fields': ('_post_logout_redirect_uris',),
         }],
+        [_(u'Front-Channel logout'), {
+            'fields': ('frontchannel_logout_uri', 'frontchannel_logout_session_supported',
+                       '_post_logout_redirect_uris')
+        }]
     ]
     form = ClientForm
-    list_display = ['name', 'client_id', 'response_type_descriptions', 'date_created']
+    list_display = [
+        'name', 'client_id', 'response_type_descriptions', 'date_created'
+    ]
     readonly_fields = ['date_created']
     search_fields = ['name']
     raw_id_fields = ['owner']

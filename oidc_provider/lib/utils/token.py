@@ -1,6 +1,6 @@
-from datetime import timedelta
 import time
 import uuid
+from datetime import timedelta
 
 from Cryptodome.PublicKey.RSA import importKey
 from django.utils import dateformat, timezone
@@ -8,19 +8,15 @@ from jwkest.jwk import RSAKey as jwk_RSAKey
 from jwkest.jwk import SYMKey
 from jwkest.jws import JWS
 from jwkest.jwt import JWT
-
-from oidc_provider.lib.utils.common import get_issuer, run_processing_hook
-from oidc_provider.lib.claims import StandardScopeClaims
-from oidc_provider.models import (
-    Code,
-    RSAKey,
-    Token,
-)
 from oidc_provider import settings
+from oidc_provider.lib.claims import StandardScopeClaims
+from oidc_provider.lib.utils.common import (get_issuer, get_user_sid,
+                                            run_processing_hook)
+from oidc_provider.models import Code, RSAKey, Token
 
 
 def create_id_token(token, user, aud, nonce='', at_hash='', request=None,
-                    scope=None):
+                    scope=None, sid=False):
     """
     Creates the id_token dictionary.
     See: http://openid.net/specs/openid-connect-core-1_0.html#IDToken
@@ -62,6 +58,13 @@ def create_id_token(token, user, aud, nonce='', at_hash='', request=None,
         else:
             claims = StandardScopeClaims(token).create_response_dic()
         dic.update(claims)
+    if ('email' in scope) and getattr(user, 'email', None):
+        dic['email'] = user.email
+
+    if sid:
+        dic['sid'] = get_user_sid(user)
+
+    processing_hook = settings.get('OIDC_IDTOKEN_PROCESSING_HOOK')
 
     dic = run_processing_hook(
         dic, 'OIDC_IDTOKEN_PROCESSING_HOOK',
@@ -75,19 +78,53 @@ def encode_id_token(payload, client):
     Represent the ID Token as a JSON Web Token (JWT).
     Return a hash.
     """
-    keys = get_client_alg_keys(client)
+    keys = _client_keys(client)
     _jws = JWS(payload, alg=client.jwt_alg)
     return _jws.sign_compact(keys)
 
 
 def decode_id_token(token, client):
     """
-    Represent the ID Token as a JSON Web Token (JWT).
-    Return a hash.
-    """
-    keys = get_client_alg_keys(client)
-    return JWS().verify_compact(token, keys=keys)
+    Takes a JSON Web Token (JWT) and signing client to verify and decode the content.
 
+    Returns a dict.
+    """
+    keys = _client_keys(client)
+
+    _plain = JWS().verify_compact(token, keys=keys)
+
+    return _plain
+
+
+def _client_keys(client):
+    """
+    Takes a client and returns the set of keys associated with it.
+
+    Returns a list of keys.
+    """
+    if client.jwt_alg == 'RS256':
+        keys = []
+        for rsakey in RSAKey.objects.all():
+            keys.append(jwk_RSAKey(key=importKey(rsakey.key), kid=rsakey.kid))
+
+        if not keys:
+            raise Exception('You must add at least one RSA Key.')
+    elif client.jwt_alg == 'HS256':
+        keys = [SYMKey(key=client.client_secret, alg=client.jwt_alg)]
+    else:
+        raise Exception('Unsupported key algorithm.')
+
+    return keys
+
+
+def client_from_token(token):
+    """
+    Extracts the client id from a JSON Web Token (JWT).
+
+    Returns the client id as string
+    """
+    payload = JWT().unpack(token).payload()
+    return payload.get('aud', None)
 
 def client_id_from_id_token(id_token):
     """

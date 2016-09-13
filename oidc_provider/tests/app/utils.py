@@ -3,20 +3,14 @@ import string
 
 import django
 from django.contrib.auth.backends import ModelBackend
+from django.contrib.auth.models import User
+from django.utils import timezone
+from oidc_provider.models import Client, Code, ResponseType, Token
 
 try:
     from urlparse import parse_qs, urlsplit
 except ImportError:
     from urllib.parse import parse_qs, urlsplit
-
-from django.utils import timezone
-from django.contrib.auth.models import User
-
-from oidc_provider.models import (
-    Client,
-    Code,
-    Token,
-    ResponseType)
 
 
 FAKE_NONCE = 'cb584e44c43ed6bd0bc2d9c7e242837d'
@@ -26,7 +20,7 @@ FAKE_CODE_CHALLENGE = 'YlYXEqXuRm-Xgi2BOUiK50JW1KsGTX6F1TDnZSC8VTg'
 FAKE_CODE_VERIFIER = 'SmxGa0XueyNh5bDgTcSrqzAh2_FmXEqU8kDT6CuXicw'
 
 
-def create_fake_user():
+def create_fake_user(username='johndoe', password='1234'):
     """
     Create a test user.
 
@@ -44,7 +38,7 @@ def create_fake_user():
     return user
 
 
-def create_fake_client(response_type, is_public=False, require_consent=True):
+def create_fake_client(response_type, is_public=False, require_consent=True, jwt_alg=None, logout_session_supported=False):
     """
     Create a test client, response_type argument MUST be:
     'code', 'id_token' or 'id_token token'.
@@ -61,6 +55,10 @@ def create_fake_client(response_type, is_public=False, require_consent=True):
         client.client_secret = str(random.randint(1, 999999)).zfill(6)
     client.redirect_uris = ['http://example.com/']
     client.require_consent = require_consent
+    client.frontchannel_logout_session_supported = logout_session_supported
+
+    if jwt_alg:
+        client.jwt_alg = jwt_alg
 
     client.save()
 

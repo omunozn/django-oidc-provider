@@ -1,11 +1,11 @@
+import hashlib
+import time
 from hashlib import sha224
 
 import django
 from django.http import HttpResponse
 from django.utils.cache import patch_vary_headers
-
 from oidc_provider import settings
-
 
 if django.VERSION >= (1, 11):
     from django.urls import reverse
@@ -53,6 +53,18 @@ def get_issuer(site_url=None, request=None):
     issuer = site_url + path
 
     return str(issuer)
+
+
+def get_user_sid(user):
+    """
+    Generates a session id (sid) based on the last time the user logged in.
+    It provides a way to tag user sessions without using the session_key of
+    the user.
+    """
+    user_auth_time = user.last_login or user.date_joined
+    auth_time = time.mktime(user_auth_time.timetuple())
+    key = '%s_%s' % (user.id, auth_time)
+    return hashlib.sha224(key.encode('utf-8')).hexdigest()
 
 
 def default_userinfo(claims, user):

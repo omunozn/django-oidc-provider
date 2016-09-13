@@ -1,59 +1,47 @@
 import logging
 
+from Cryptodome.PublicKey import RSA
+from django.contrib.auth import logout as django_user_logout
+from django.contrib.auth.views import LogoutView, logout, redirect_to_login
+from django.http import HttpResponse, HttpResponseBadRequest, JsonResponse
+from django.shortcuts import render
+from django.template.loader import render_to_string
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import never_cache
+from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
+from django.views.generic import View
+from jwkest import BadSignature, BadSyntax, long_to_base64
+from oidc_provider import settings, signals
+from oidc_provider.compat import get_attr_or_callable
+from oidc_provider.lib.claims import StandardScopeClaims
+from oidc_provider.lib.endpoints.authorize import AuthorizeEndpoint
+from oidc_provider.lib.endpoints.introspection import \
+    TokenIntrospectionEndpoint
+from oidc_provider.lib.endpoints.token import TokenEndpoint
+from oidc_provider.lib.errors import (AuthorizeError, ClientIdError,
+                                      RedirectUriError, TokenError,
+                                      TokenIntrospectionError, UserAuthError)
+from oidc_provider.lib.utils.authorize import strip_prompt_login
+from oidc_provider.lib.utils.common import (cors_allow_any, get_issuer,
+                                            get_site_url, redirect)
+from oidc_provider.lib.utils.oauth2 import protected_resource_view
+from oidc_provider.lib.utils.token import (client_from_token,
+                                           client_id_from_id_token,
+                                           decode_id_token)
+from oidc_provider.models import Client, ResponseType, RSAKey
 
-from oidc_provider.lib.endpoints.introspection import TokenIntrospectionEndpoint
 try:
     from urllib import urlencode
     from urlparse import urlsplit, parse_qs, urlunsplit
 except ImportError:
     from urllib.parse import urlsplit, parse_qs, urlunsplit, urlencode
 
-from Cryptodome.PublicKey import RSA
-from django.contrib.auth.views import (
-    redirect_to_login,
-    LogoutView,
-)
 try:
     from django.urls import reverse
 except ImportError:
     from django.core.urlresolvers import reverse
-from django.contrib.auth import logout as django_user_logout
-from django.http import JsonResponse, HttpResponse
-from django.shortcuts import render
-from django.template.loader import render_to_string
-from django.utils.decorators import method_decorator
-from django.views.decorators.clickjacking import xframe_options_exempt
-from django.views.decorators.http import require_http_methods
-from django.views.generic import View
-from jwkest import long_to_base64
-
-from oidc_provider.compat import get_attr_or_callable
-from oidc_provider.lib.claims import StandardScopeClaims
-from oidc_provider.lib.endpoints.authorize import AuthorizeEndpoint
-from oidc_provider.lib.endpoints.token import TokenEndpoint
-from oidc_provider.lib.errors import (
-    AuthorizeError,
-    ClientIdError,
-    RedirectUriError,
-    TokenError,
-    UserAuthError,
-    TokenIntrospectionError)
-from oidc_provider.lib.utils.authorize import strip_prompt_login
-from oidc_provider.lib.utils.common import (
-    redirect,
-    get_site_url,
-    get_issuer,
-    cors_allow_any,
-)
-from oidc_provider.lib.utils.oauth2 import protected_resource_view
-from oidc_provider.lib.utils.token import client_id_from_id_token
-from oidc_provider.models import (
-    Client,
-    RSAKey,
-    ResponseType)
-from oidc_provider import settings
-from oidc_provider import signals
 
 
 logger = logging.getLogger(__name__)
@@ -288,6 +276,8 @@ class ProviderInfoView(View):
 
         if settings.get('OIDC_ACR_VALUES'):
             dic['acr_values_supported'] = settings.get('OIDC_ACR_VALUES')
+        dic['frontchannel_logout_supported'] = True
+        dic['frontchannel_logout_session_supported'] = True
 
         response = JsonResponse(dic)
         response['Access-Control-Allow-Origin'] = '*'
@@ -378,3 +368,50 @@ class TokenIntrospectionView(View):
             return TokenIntrospectionEndpoint.response(dic)
         except TokenIntrospectionError:
             return TokenIntrospectionEndpoint.response({'active': False})
+
+
+class LogoutView(View):
+    @never_cache
+    def get(self, request, *args, **kwargs):
+        try:
+            id_token_hint = request.GET.get('id_token_hint', None)
+            requested_post_logout_redirect = request.GET.get('post_logout_redirect_uri', None)
+            state = request.GET.get('state', None)
+
+            if id_token_hint is not None:
+                _, client = self.extract_id_token_hint(id_token_hint, request.user)
+                post_logout_redirect = self.get_post_logout_redirect(client, requested_post_logout_redirect, state)
+                return logout(request, next_page=post_logout_redirect)
+            else:
+                return logout(request, next_page=settings.get('LOGIN_URL'))
+
+        except ValueError as e:
+            return HttpResponseBadRequest(e.args)
+
+    def extract_id_token_hint(self, id_token_hint, authenticated_user):
+        try:
+            client_id = client_from_token(id_token_hint)
+            client = Client.objects.get(client_id=client_id)
+            decoded_token = decode_id_token(id_token_hint, client)
+            sub = settings.get('OIDC_IDTOKEN_SUB_GENERATOR', import_str=True)(user=authenticated_user)
+            if decoded_token.get('sub', None) != sub:
+                raise ValueError('\'id_token_hint\' references a user that\'s no longer valid')
+            return decoded_token, client
+        except Client.DoesNotExist:
+            raise ValueError
+        except BadSignature:
+            raise ValueError
+        except BadSyntax:
+            raise ValueError
+
+    def get_post_logout_redirect(self, client, requested_post_logout_redirect, state):
+        if requested_post_logout_redirect is None:
+            return settings.get('LOGIN_URL')
+        else:
+            if requested_post_logout_redirect in client.post_logout_redirect_uris:
+                if state is None:
+                    return requested_post_logout_redirect
+                else:
+                    return '{url}?state={state}'.format(url=requested_post_logout_redirect, state=state)
+            else:
+                raise ValueError('\'post_logout_redirect_uri\' is not registered')
