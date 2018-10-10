@@ -52,11 +52,17 @@ class ClientAdmin(admin.ModelAdmin):
     fieldsets = [
         [_(u''), {
             'fields': (
-                'name', 'owner', 'client_type', 'response_types', '_redirect_uris', 'jwt_alg',
+                'name', 'owner', 'client_type', 'response_types', '_redirect_uris',
                 'require_consent', 'reuse_consent'),
         }],
         [_(u'Credentials'), {
             'fields': ('client_id', 'client_secret', '_scope'),
+        }],
+        [_(u'JWS (Signing)'), {
+            'fields': ('jwt_alg', ),
+        }],
+        [_(u'JWE (Encryption)'), {
+            'fields': ('encrypt_token', 'token_encryption_key', 'jwe_alg', 'jwe_enc'),
         }],
         [_(u'Information'), {
             'fields': ('contact_email', 'website_url', 'terms_url', 'logo', 'date_created'),

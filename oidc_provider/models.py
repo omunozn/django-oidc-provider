@@ -29,6 +29,18 @@ JWT_ALGS = [
     ('RS256', 'RS256'),
 ]
 
+JWE_ALGS = [
+    ('RSA1_5', 'RSA1_5'),
+    ('RSA-OAEP', 'RSA-OAEP'),
+    ('RSA-OAEP-256', 'RSA-OAEP-256'),
+]
+
+JWT_ENCS = [
+    ('A128CBC-HS256', 'A128CBC-HS256'),
+    ('A192CBC-HS384', 'A192CBC-HS384'),
+    ('A256CBC-HS512', 'A256CBC-HS512'),
+]
+
 
 class ResponseTypeManager(models.Manager):
     def get_by_natural_key(self, value):
@@ -111,6 +123,26 @@ class Client(models.Model):
         default='',
         verbose_name=_(u'Scopes'),
         help_text=_('Specifies the authorized scope values for the client app.'))
+    encrypt_token = models.BooleanField(
+        default=False,
+        verbose_name=_('Should encrypt ID Tokens?'),
+        help_text=_('If enabled, the token_encryption_key will be used to encrypt ID Tokens'))
+    token_encryption_key = models.TextField(
+        verbose_name=_(u'Token Encryption Key'),
+        default='',
+        help_text=_(u'Paste the Client\'s public RSA Key here.'))
+    jwe_alg = models.CharField(
+        max_length=12,
+        choices=JWE_ALGS,
+        default='RSA-OAEP',
+        verbose_name=_(u'JWE Algorithm'),
+        help_text=_(u'Algorithm used to encrypt ID Tokens.'))
+    jwe_enc = models.CharField(
+        max_length=13,
+        choices=JWT_ENCS,
+        default='A256CBC-HS512',
+        verbose_name=_(u'JWE Authenticated Encryption algorithm'),
+        help_text=_(u'Algorithm used to perform authenticated encryption to ID Tokens.'))
 
     class Meta:
         verbose_name = _(u'Client')
@@ -156,6 +188,12 @@ class Client(models.Model):
     @property
     def default_redirect_uri(self):
         return self.redirect_uris[0] if self.redirect_uris else ''
+
+    @property
+    def token_encryption_key_kid(self):
+        if self.token_encryption_key:
+            return u'{0}'.format(md5(self.token_encryption_key.encode('utf-8')).hexdigest())
+        return ''
 
 
 class BaseCodeTokenModel(models.Model):
