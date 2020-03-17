@@ -164,16 +164,25 @@ class AuthorizeEndpoint(object):
                 query_params['code'] = code.code
                 query_params['state'] = self.params['state'] if self.params['state'] else ''
             elif self.grant_type in ['implicit', 'hybrid']:
+                try:
+                    session = self.request.session
+                except AttributeError:
+                    session = {}
+                
                 token = create_token(
                     user=self.request.user,
                     client=self.client,
-                    scope=self.params['scope'])
-
+                    scope=self.params['scope'],
+                    acr=session['acr'] if 'acr' in session else '',
+                    amr=session['amr'] if 'amr' in session else '',
+                    ae=session['ae'] if 'ae' in session else None,
+                    rid=session['rid'] if 'rid' in session else None)
+                
                 # Check if response_type must include access_token in the response.
                 if (self.params['response_type'] in
                    ['id_token token', 'token', 'code token', 'code id_token token']):
                     query_fragment['access_token'] = token.access_token
-
+                
                 # We don't need id_token if it's an OAuth2 request.
                 if self.is_authentication:
                     kwargs = {
@@ -199,7 +208,7 @@ class AuthorizeEndpoint(object):
                 # Store the token.
                 token.id_token = id_token_dic
                 token.save()
-
+                
                 # Code parameter must be present if it's Hybrid Flow.
                 if self.grant_type == 'hybrid':
                     query_fragment['code'] = code.code

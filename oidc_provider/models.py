@@ -224,6 +224,12 @@ class Token(BaseCodeTokenModel):
     access_token = models.CharField(max_length=255, unique=True, verbose_name=_(u'Access Token'))
     refresh_token = models.CharField(max_length=255, unique=True, verbose_name=_(u'Refresh Token'))
     _id_token = models.TextField(verbose_name=_(u'ID Token'))
+    acr = models.CharField(max_length=255,
+                           null=True,
+                           verbose_name=_(u'Authentication Context Reference'))
+    _amr = models.CharField(max_length=255,
+                            null=True,
+                            verbose_name=_(u'Authentication Method Reference'))
 
     class Meta:
         verbose_name = _(u'Token')
@@ -251,6 +257,14 @@ class Token(BaseCodeTokenModel):
                 hashed_access_token[:len(hashed_access_token) // 2]
             )
         ).rstrip(b'=').decode('ascii')
+    
+    @property
+    def amr(self):
+        return self._amr.split() if self._amr else None
+
+    @amr.setter
+    def amr(self, value):
+        self._amr = value
 
 
 class UserConsent(BaseCodeTokenModel):

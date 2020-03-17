@@ -105,7 +105,7 @@ def client_id_from_id_token(id_token):
     return aud
 
 
-def create_token(user, client, scope, id_token_dic=None, ae=None, rid=None):
+def create_token(user, client, scope, id_token_dic=None, acr=None, amr=None, ae=None, rid=None):
     """
     Create and populate a Token object.
     Return a Token object.
@@ -120,6 +120,12 @@ def create_token(user, client, scope, id_token_dic=None, ae=None, rid=None):
 
     if rid is not None:
         token.rid = rid
+    
+    if acr is not None:
+        token.acr = acr
+    
+    if amr is not None:
+        token.amr = amr
 
     if id_token_dic is not None:
         token.id_token = id_token_dic
